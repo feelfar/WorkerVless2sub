@@ -662,7 +662,7 @@ export default {
 				console.log("link: " + link)
 			}
 			
-			if (notlsresponseBody && noTLS == 'true') {
+			if (notlsresponseBody && noTLS == true) {
 				combinedContent += '\n' + notlsresponseBody;
 				console.log("notlsresponseBody: " + notlsresponseBody);
 			}
