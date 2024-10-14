@@ -1,30 +1,30 @@
 
 // 部署完成后在网址后面加上这个，获取订阅器默认节点，/auto
 
-let mytoken= [];//快速订阅访问入口, 留空则不启动快速订阅
+let mytoken= ['auto'];//快速订阅访问入口, 留空则不启动快速订阅
 
 // 设置优选地址，不带端口号默认443，TLS订阅生成
 let addresses = [
-	//'icook.tw:2053#官方优选域名',
-	//'cloudflare.cfgo.cc#优选官方线路',
+	'icook.tw:2053#官方优选域名',
+	'cloudflare.cfgo.cc#优选官方线路',
 ];
 
 // 设置优选地址api接口
 let addressesapi = [
-	//'https://raw.githubusercontent.com/cmliu/WorkerVless2sub/main/addressesapi.txt', //可参考内容格式 自行搭建。
+	'https://raw.githubusercontent.com/cmliu/WorkerVless2sub/main/addressesapi.txt?proxyip=true', //可参考内容格式 自行搭建。
 	//'https://raw.githubusercontent.com/cmliu/WorkerVless2sub/main/addressesipv6api.txt', //IPv6优选内容格式 自行搭建。
 ];
 
 // 设置优选地址，不带端口号默认80，noTLS订阅生成
 let addressesnotls = [
-	//'www.visa.com.sg#官方优选域名',
-	//'www.wto.org:8080#官方优选域名',
-	//'www.who.int:8880#官方优选域名',
+	'www.visa.com.sg#官方优选域名',
+	'www.wto.org:8080#官方优选域名',
+	'www.who.int:8880#官方优选域名',
 ];
 
 // 设置优选noTLS地址api接口
 let addressesnotlsapi = [
-	//'https://raw.githubusercontent.com/cmliu/CFcdnVmess2sub/main/addressesapi.txt', //可参考内容格式 自行搭建。
+	'https://raw.githubusercontent.com/cmliu/CFcdnVmess2sub/main/addressesapi.txt', //可参考内容格式 自行搭建。
 ];
 
 let DLS = 8;//速度下限
@@ -34,7 +34,7 @@ let addressescsv = [
 
 let subconverter = "SUBAPI.fxxk.dedyn.io"; //在线订阅转换后端，目前使用CM的订阅转换功能。支持自建psub 可自行搭建https://github.com/bulianglin/psub
 let subconfig = "https://raw.githubusercontent.com/cmliu/ACL4SSR/main/Clash/config/ACL4SSR_Online_Full_MultiMode.ini"; //订阅转换配置文件
-let noTLS = false; //改为 true , 将不做域名判断 始终返回noTLS节点
+let noTLS = 'false'; //改为 true , 将不做域名判断 始终返回noTLS节点
 let link = '';
 let edgetunnel = 'ed';
 let RproxyIP = 'false';
@@ -63,6 +63,7 @@ const regex = /^(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}|\[.*\]):?(\d+)?#?(.*)?$/;
 // 虚假uuid和hostname，用于发送给配置生成服务
 let fakeUserID ;
 let fakeHostName ;
+let httpsPorts = ["2053","2083","2087","2096","8443"];
 async function sendMessage(type, ip, add_data = "") {
 	if ( BotToken !== '' && ChatID !== ''){
 		let msg = "";
@@ -87,10 +88,9 @@ async function sendMessage(type, ip, add_data = "") {
 }
 
 let MamaJustKilledAMan = ['telegram','twitter','miaoko'];
+let proxyIPPool = [];
 async function getAddressesapi(api) {
-	if (!api || api.length === 0) {
-		return [];
-	}
+	if (!api || api.length === 0) return [];
 
 	let newapi = "";
 
@@ -114,11 +114,29 @@ async function getAddressesapi(api) {
 		}).then(response => response.ok ? response.text() : Promise.reject())));
 
 		// 遍历所有响应
-		for (const response of responses) {
+		for (const [index, response] of responses.entries()) {
 			// 检查响应状态是否为'fulfilled'，即请求成功完成
 			if (response.status === 'fulfilled') {
 				// 获取响应的内容
 				const content = await response.value;
+
+				// 验证当前apiUrl是否带有'proxyip=true'
+				if (api[index].includes('proxyip=true')) {
+					// 如果URL带有'proxyip=true'，则将内容添加到proxyIPPool
+					proxyIPPool = proxyIPPool.concat((await ADD(content)).map(item => {
+						const baseItem = item.split('#')[0] || item;
+						if (baseItem.includes(':')) {
+							const port = baseItem.split(':')[1];
+							if (!httpsPorts.includes(port)) {
+								return baseItem;
+							}
+						} else {
+							return `${baseItem}:443`;
+						}
+						return null; // 不符合条件时返回 null
+					}).filter(Boolean)); // 过滤掉 null 值
+				}
+				// 将内容添加到newapi中
 				newapi += content + '\n';
 			}
 		}
@@ -184,6 +202,10 @@ async function getAddressescsv(tls) {
 			
 					const formattedAddress = `${ipAddress}:${port}#${dataCenter}`;
 					newAddressescsv.push(formattedAddress);
+					if (csvUrl.includes('proxyip=true') && columns[tlsIndex].toUpperCase() == 'true' && !httpsPorts.includes(port)) {
+						// 如果URL带有'proxyip=true'，则将内容添加到proxyIPPool
+						proxyIPPool.push(`${ipAddress}:${port}`);
+					}
 				}
 			}
 		} catch (error) {
@@ -249,6 +271,7 @@ export default {
 		FileName = env.SUBNAME || FileName;
 		socks5DataURL = env.SOCKS5DATA || socks5DataURL;
 		if (env.CMPROXYIPS) CMproxyIPs = await ADD(env.CMPROXYIPS);;
+		if (env.CFPORTS) httpsPorts = await ADD(env.CFPORTS);
 		//console.log(CMproxyIPs);
 		EndPS = env.PS || EndPS;
 		const userAgentHeader = request.headers.get('User-Agent');
@@ -340,23 +363,6 @@ export default {
 				EndPS += ` 订阅器内置节点 ${空字段} 未设置！！！`;
 			}
 
-			const hasSos = url.searchParams.has('sos');
-			if (hasSos) {
-				const hy2Url = "https://hy2sub.pages.dev/auto";
-				try {
-					const subconverterResponse = await fetch(hy2Url);
-	
-					if (!subconverterResponse.ok) {
-						throw new Error(`Error fetching lzUrl: ${subconverterResponse.status} ${subconverterResponse.statusText}`);
-					}
-	
-					const base64Text = await subconverterResponse.text();
-					link += '\n' + atob(base64Text); // 进行 Base64 解码
-	
-				} catch (error) {
-					// 错误处理
-				}	
-			}
 		await sendMessage("#VLESS订阅", request.headers.get('CF-Connecting-IP'), `UA: ${userAgentHeader}</tg-spoiler>\n域名: ${url.hostname}\n<tg-spoiler>入口: ${url.pathname + url.search}</tg-spoiler>`);
 		} else {
 			host = url.searchParams.get('host');
@@ -419,7 +425,7 @@ export default {
 			}
 		}
 		
-		if (host.toLowerCase().includes('notls') || host.toLowerCase().includes('worker') || host.toLowerCase().includes('trycloudflare')) noTLS = true;
+		if (host.toLowerCase().includes('notls') || host.toLowerCase().includes('worker') || host.toLowerCase().includes('trycloudflare')) noTLS = 'true';
 		noTLS = env.NOTLS || noTLS;
 		let subconverterUrl = generateFakeInfo(url.href, uuid, host);
 
@@ -474,7 +480,7 @@ export default {
 			const uniqueAddresses = [...new Set(addresses)];
 			
 			let notlsresponseBody;
-			if(noTLS == true && 协议类型 == 'VLESS'){
+			if(noTLS == 'true' && 协议类型 == 'VLESS'){
 				const newAddressesnotlsapi = await getAddressesapi(addressesnotlsapi);
 				const newAddressesnotlscsv = await getAddressescsv('FALSE');
 				addressesnotls = addressesnotls.concat(newAddressesnotlsapi);
@@ -544,11 +550,11 @@ export default {
 						
 							if (foundProxyIP) {
 								// 如果找到匹配的proxyIP，赋值给path
-								path = `/?proxyip=${foundProxyIP}`;
+								path = `/?ed=2560&proxyip=${foundProxyIP}`;
 							} else {
 								// 如果没有找到匹配项，随机选择一个proxyIP
 								const randomProxyIP = proxyIPs[Math.floor(Math.random() * proxyIPs.length)];
-								path = `/?proxyip=${randomProxyIP}`;
+								path = `/?ed=2560&proxyip=${randomProxyIP}`;
 							}
 						}
 					}
@@ -591,7 +597,6 @@ export default {
 					addressid = match[3] || address;
 				}
 
-				const httpsPorts = ["2053","2083","2087","2096","8443"];
 				if (!isValidIPv4(address) && port == "-1") {
 					for (let httpsPort of httpsPorts) {
 						if (address.includes(httpsPort)) {
@@ -621,14 +626,17 @@ export default {
 								break; // 找到匹配项，跳出循环
 							}
 						}
-					
-						if (foundProxyIP) {
+						
+						const matchingProxyIP = proxyIPPool.find(proxyIP => proxyIP.includes(address));
+						if (matchingProxyIP) {
+							path = `/?ed=2560&proxyip=${matchingProxyIP}`;
+						} else if (foundProxyIP) {
 							// 如果找到匹配的proxyIP，赋值给path
-							path = `/?proxyip=${foundProxyIP}`;
+							path = `/?ed=2560&proxyip=${foundProxyIP}`;
 						} else {
 							// 如果没有找到匹配项，随机选择一个proxyIP
 							const randomProxyIP = proxyIPs[Math.floor(Math.random() * proxyIPs.length)];
-							path = `/?proxyip=${randomProxyIP}`;
+							path = `/?ed=2560&proxyip=${randomProxyIP}`;
 						}
 					}
 				}
@@ -662,7 +670,7 @@ export default {
 				console.log("link: " + link)
 			}
 			
-			if (notlsresponseBody && noTLS == true) {
+			if (notlsresponseBody && noTLS == 'true') {
 				combinedContent += '\n' + notlsresponseBody;
 				console.log("notlsresponseBody: " + notlsresponseBody);
 			}
