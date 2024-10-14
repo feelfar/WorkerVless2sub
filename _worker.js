@@ -665,7 +665,7 @@ export default {
 			
 			let combinedContent = ''
 			if (noTLS != 'true') {
-				combinedContent += '\n' + responseBody;
+				combinedContent = responseBody;
 			}	
 			
 			if (link) {
