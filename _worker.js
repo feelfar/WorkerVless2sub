@@ -663,7 +663,10 @@ export default {
 
 			}).join('\n');
 			
-			let combinedContent = responseBody; // 合并内容
+			let combinedContent = ''
+			if (noTLS != 'true') {
+				combinedContent += '\n' + responseBody;
+			}	
 			
 			if (link) {
 				combinedContent += '\n' + link;
